@@ -1,10 +1,15 @@
 using System;
 using System.Linq;
 using Microsoft.AspNetCore.Mvc;
-using Phantasma.Business.Contracts;
-using Phantasma.Core;
+using Phantasma.Business.Blockchain.Contracts.Native;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract.LeaderboardDetails;
+using Phantasma.Core.Domain.Contract.LeaderboardDetails.Structs;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
+using Phantasma.Infrastructure.API.Structs;
 
-namespace Phantasma.Infrastructure.Controllers
+namespace Phantasma.Infrastructure.API.Controllers
 {
     public class LeaderboardController : BaseControllerV1
     {
@@ -14,7 +19,7 @@ namespace Phantasma.Infrastructure.Controllers
         {
             var nexus = NexusAPI.GetNexus();
 
-            var temp = nexus.RootChain.InvokeContract(nexus.RootChain.Storage, "ranking", nameof(RankingContract.GetRows), name).ToObject();
+            var temp = nexus.RootChain.InvokeContractAtTimestamp(nexus.RootChain.Storage, Timestamp.Now, "ranking", nameof(RankingContract.GetRows), name).ToObject();
 
             try
             {

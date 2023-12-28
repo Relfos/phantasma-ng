@@ -1,36 +1,18 @@
-﻿using Phantasma.Core;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
+using Phantasma.Business.Blockchain.Contracts;
+using Phantasma.Business.Blockchain.VM;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract;
+using Phantasma.Core.Domain.Contract.Enums;
+using Phantasma.Core.Domain.Exceptions;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Domain.VM;
+using Phantasma.Core.Domain.VM.Enums;
 
-namespace Phantasma.Business
+namespace Phantasma.Business.VM.Utils
 {
-    public struct DisasmMethodCall
-    {
-        public string ContractName;
-        public string MethodName;
-
-        public VMObject[] Arguments;
-
-        public override string ToString()
-        {
-            var sb = new StringBuilder();
-            sb.Append($"{ContractName}.{MethodName}(");
-            for (int i=0; i<Arguments.Length; i++)
-            {
-                if (i > 0)
-                {
-                    sb.Append(',');
-                }
-
-                var arg = Arguments[i];
-                sb.Append(arg.ToString());
-            }
-            sb.Append(")");
-            return sb.ToString();
-        }
-    }
-
     public static class DisasmUtils
     {
         private static VMObject[] PopArgs(string contract, string method, Stack<VMObject> stack, Dictionary<string, int> methodArgumentCountTable)
@@ -48,70 +30,77 @@ namespace Phantasma.Business
                 var result = new VMObject[argCount];
                 for (int i = 0; i < argCount; i++)
                 {
+                    if (stack.Count == 0)
+                    {
+                        throw new System.Exception($"Cannot disassemble method => method {key} expected {argCount} args, {i} were fetched");
+                    }
+
                     result[i] = stack.Pop();
                 }
                 return result;
             }
             else
             {
-                throw new System.Exception("Cannot disassemble method arguments => " + key);
+                throw new System.Exception("Cannot disassemble method => unknown name: " + key);
             }
         }
 
-        public static Dictionary<string, int> GetDefaultDisasmTable()
+        private readonly static Dictionary<string, int> _defaultDisasmTable = GetDefaultDisasmTable();
+        private static Dictionary<uint, Dictionary<string, int>> _disasmTableVersions = new Dictionary<uint, Dictionary<string, int>>();
+
+        public static Dictionary<string, int> GetDefaultDisasmTable(uint ProtocolVersion = DomainSettings.LatestKnownProtocol)
         {
+            if ( _disasmTableVersions == null)
+            {
+                _disasmTableVersions = new Dictionary<uint, Dictionary<string, int>>();
+            }else if (_disasmTableVersions.TryGetValue(ProtocolVersion, out var disasmTable))
+            {
+                return disasmTable;
+            }
+            
             var table = new Dictionary<string, int>();
-            table["Runtime.Log"] = 1;
-            table["Runtime.Notify"] = 3;
-            table["Runtime.IsWitness"] = 1;
-            table["Runtime.IsTrigger"] = 0;
-            table["Runtime.TransferBalance"] = 3;
-            table["Runtime.MintTokens"] = 4;
-            table["Runtime.BurnTokens"] = 3;
-            table["Runtime.SwapTokens"] = 5;
-            table["Runtime.TransferTokens"] = 4;
-            table["Runtime.TransferToken"] = 4;
-            table["Runtime.MintToken"] = 4;
-            table["Runtime.BurnToken"] = 3;
-            table["Runtime.InfuseToken"] = 5;
 
-            table["Nexus.CreateToken"] = 7;
+            ExtCalls.IterateExtcalls(ProtocolVersion, (methodName, argCount, method) =>
+            {
+                table[methodName] = argCount;
+            });
 
-            table["gas.AllowGas"] = 4;
-            table["gas.SpendGas"] = 1;
+            var nativeContracts = Enum.GetValues<NativeContractKind>();
+            foreach (var kind in nativeContracts)
+            {
+                if (kind == NativeContractKind.Unknown)
+                {
+                    continue;
+                }
 
-            table["market.SellToken"] = 6;
-            table["market.BuyToken"] = 3;
-            table["market.CancelSale"] = 2;
-            table["market.EditAuction"] = 9;
-            table["market.ListToken"] = 12;
-            table["market.BidToken"] = 6;
-
-            table["swap.GetRate"] = 3;
-            table["swap.DepositTokens"] = 3;
-            table["swap.SwapFee"] = 3;
-            table["swap.SwapReverse"] = 4;
-            table["swap.SwapFiat"] = 4;
-            table["swap.SwapTokens"] = 4;
-            table["stake.Migrate"] = 2;
-            table["stake.MasterClaim"] = 1;
-            table["stake.Stake"] = 2;
-            table["stake.Unstake"] = 2;
-            table["stake.Claim"] = 2;
-            table["stake.AddProxy"] = 3;
-            table["stake.RemoveProxy"] = 2;
+                var contract = NativeContract.GetNativeContractByKind(kind);
+                table.AddContractToTable(contract);
+            }
             
-            table["account.RegisterName"] = 2;
-            table["account.UnregisterName"] = 1;
-            table["account.RegisterScript"] = 2;
-            
-            table["storage.UploadData"] = 6;
-            table["storage.UploadFile"] = 7;
-            table["storage.DeleteFile"] = 2;
-            table["storage.SetForeignSpace"] = 2;
-
-            // TODO add more here
+            _disasmTableVersions.Add(ProtocolVersion, table);
             return table;
+        }
+
+        public static void AddContractToTable(this Dictionary<string, int> table, IContract contract)
+        {
+            var abi = contract.ABI;
+
+            foreach (var method in abi.Methods)
+            {
+                var key = $"{contract.Name}.{method.name}";
+                table[key] = method.parameters.Length;
+            }
+        }
+
+        public static void AddTokenToTable(this Dictionary<string, int> table, IToken token)
+        {
+            var abi = token.ABI;
+
+            foreach (var method in abi.Methods)
+            {
+                var key = $"{token.Symbol}.{method.name}";
+                table[key] = method.parameters.Length;
+            }
         }
 
         public static IEnumerable<string> ExtractContractNames(Disassembler disassembler)
@@ -171,8 +160,13 @@ namespace Phantasma.Business
             return ExtractContractNames(disassembler);
         }
 
-        public static IEnumerable<DisasmMethodCall> ExtractMethodCalls(Disassembler disassembler, Dictionary<string, int> methodArgumentCountTable)
+        public static IEnumerable<DisasmMethodCall> ExtractMethodCalls(Disassembler disassembler, uint ProtocolVersion, Dictionary<string, int> methodArgumentCountTable = null, bool detectAndUseJumps = false)
         {
+            if (methodArgumentCountTable == null)
+            {
+                methodArgumentCountTable = GetDefaultDisasmTable(ProtocolVersion);
+            }
+
             var instructions = disassembler.Instructions.ToArray();
             var result = new List<DisasmMethodCall>();
 
@@ -238,6 +232,43 @@ namespace Phantasma.Business
                             result.Add(new DisasmMethodCall() { MethodName = methodName, ContractName = "", Arguments = args });
                             break;
                         }
+
+                    case Opcode.JMP:
+                    case Opcode.JMPNOT:
+                    case Opcode.JMPIF:
+                        {
+                            if (detectAndUseJumps)
+                            {
+                                var argIndex = instruction.Opcode == Opcode.JMP ? 0 : 1;
+                                var jumpPos = (ushort) instruction.Args[argIndex];
+
+                                if (jumpPos < instruction.Offset)
+                                {
+                                    throw new ChainException("Loop detected in script: " + instruction);
+                                }
+                                else
+                                {
+                                    var found = false;
+
+                                    for (int i = index + 1; i < instructions.Length; i++)
+                                    {
+                                        if (instructions[i].Offset >= jumpPos)
+                                        {
+                                            found = true;
+                                            index = i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!found)
+                                    {
+                                        throw new ChainException("Weird jump detected in script: \" + instruction");
+                                    }
+                                }
+                            }
+
+                            break;
+                        }
                 }
 
                 index++;
@@ -246,10 +277,10 @@ namespace Phantasma.Business
             return result;
         }
 
-        public static IEnumerable<DisasmMethodCall> ExtractMethodCalls(byte[] script, Dictionary<string, int> methodArgumentCountTable)
+        public static IEnumerable<DisasmMethodCall> ExtractMethodCalls(byte[] script, uint ProtocolVersion, Dictionary<string, int> methodArgumentCountTable = null, bool detectAndUseJumps = false)
         {
             var disassembler = new Disassembler(script);
-            return ExtractMethodCalls(disassembler, methodArgumentCountTable);
+            return ExtractMethodCalls(disassembler, ProtocolVersion, methodArgumentCountTable, detectAndUseJumps);
         }
     }
 }

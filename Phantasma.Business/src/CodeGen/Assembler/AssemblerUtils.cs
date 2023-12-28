@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
+using Phantasma.Business.VM;
+using Phantasma.Business.VM.Utils;
+using Phantasma.Core.Domain.VM.Structs;
 
-namespace Phantasma.Business.Assembler
+namespace Phantasma.Business.CodeGen.Assembler
 {
     public static class AssemblerUtils
     {

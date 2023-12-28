@@ -1,0 +1,249 @@
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://0.0.0.0:7078/"
+      }
+    }
+  },
+  "ApplicationConfiguration": {
+    "Serilog": {
+      "Using": [ "Serilog.Sinks.Console", "Serilog.Sinks.File" ],
+      "MinimumLevel": {
+        "Default": "Information",
+        "Override": {
+          "Microsoft": "Warning"
+        }
+      },
+      "WriteTo": [
+        {
+          "Name": "Console",
+          "Args": {
+            "outputTemplate": "{Timestamp:u} {Timestamp:ffff} [{Level:u3}] <{ThreadId}> {Message:lj}{NewLine}{Exception}"
+          }
+        },
+        {
+          "Name": "File",
+          "Args": {
+            "path": "spook-.log",
+            "rollingInterval": "Day",
+            "outputTemplate": "{Timestamp:u} {Timestamp:ffff} [{Level:u3}] <{ThreadId}> {Message:lj}{NewLine}{Exception}"
+          }
+        }
+      ],
+      "Enrich": [ "FromLogContext", "WithMachineName", "WithThreadId" ],
+      "Properties": {
+        "Application": "GM API"
+      }
+    },
+    "PerformanceMetrics": {
+        "CountsEnabled": false,
+        "AveragesEnabled": false,
+        "LongRunningRequestThreshold": 500
+    },
+    "Node": {
+      "web.logs": false,
+      "tendermint.rpc.port": "26057",
+      "tendermint.rpc.host": "http://127.0.0.1",
+      "tendermint.proxy.host": "127.0.0.1",
+      "tendermint.proxy.port": "26058",
+      "block.time": 2,
+      "minimum.fee": 100000,
+      "minimum.pow": 0,
+      "max.gas": 10000,
+      "nexus.name": "testnet",
+      "node.mode": "validator",
+      "api.log": false,
+      "profiler.path": "",
+      "has.sync": false,
+      "has.mempool": true,
+      "mempool.log": false,
+      "has.events": false,
+      "has.relay": false,
+      "has.archive": false,
+      "has.rest": true,
+      "api.url": "http://localhost:5101",
+      "nexus.bootstrap": true,
+      "genesis.timestamp": 0,
+      "api.cache": true,
+      "sender.host": "",
+      "sender.threads": 8,
+      "sender.address.count": 100,
+      "storage.path": "",
+      "verify.storage.path": "",
+      "oracle.path": "",
+      "storage.backend": "rocksdb",
+      "convert.storage": false,
+      "random.swap.data": false,
+      "seeds": []
+    },
+
+    "Validators" : [
+      {
+        "validator.address": "P2K9zmyFDNGN6n6hHiTUAz6jqn29s5G1SWLiXwCVQcpHcQb",
+        "validator.tendermint.address": "0c8203a0e63d7c025a4be9e4391b42fb65d344ab",
+        "validator.name": "node0",
+        "validator.api.host": "testnet.phantasma.io",
+        "validator.api.port" : 5101
+      },
+      {
+        "validator.address": "P2K65RZhfxZhQcXKGgSPZL6c6hkygXipNxdeuW5FU531Bqc",
+        "validator.tendermint.address": "e602bda8f1bc8b916af4d312ce2b5c610074f423",
+        "validator.name": "node1",
+        "validator.api.host": "testnet.phantasma.io",
+        "validator.api.port" : 5102
+      },
+      {
+        "validator.address": "P2KAcEJk2UPvTP5rStzeeSJCboE9yEdA2meNVT7UNiKbdH3",
+        "validator.tendermint.address": "ea9eb814c23bc75d53324f9b650ff2b71720a0c3",
+        "validator.name": "node2",
+        "validator.api.host": "testnet.phantasma.io",
+        "validator.api.port" : 5103
+      },
+      {
+        "validator.address": "P2KLvu4UWXFz4r86PsCrtPdJSgkqCSWTZHjDgqdXXJ6Se1v",
+        "validator.tendermint.address": "5aa2fce0959bc52e743b5653f5010b9f7eafcdb1",
+        "validator.name": "node3",
+        "validator.api.host": "108.61.144.236",
+        "validator.api.port" : 5101
+      }
+    ],
+
+    "Oracle": {
+      "neoscan.api": "mankinighost.phantasma.io:4000",
+      "neo.rpc.nodes": [ "http://mankinighost.phantasma.io:30333" ],
+      "neo.rpc.specific.nodes": [],
+      "eth.rpc.nodes": [
+        "https://ropsten.infura.io/v3/34a7c02e7f2f458181180c72c4de58a6",
+        "https://ropsten.infura.io/v3/780d5a9837de47649be4c10836b5dbcf"
+      ],
+
+      "eth.fee.urls": [
+        {
+          "url": "https://gasprice.poa.network/",
+          "feeHeight": "instant",
+          "feeIncrease": 40
+        },
+        {
+          "url": "https://www.etherchain.org/api/gasPriceOracle",
+          "feeHeight": "fastest",
+          "feeIncrease": 40
+        },
+        {
+          "url": "https://api.anyblock.tools/latest-minimum-gasprice",
+          "feeHeight": "instant",
+          "feeIncrease": 40
+        }
+      ],
+      "pricer.coingecko.enabled": true,
+      "pricer.supportedtokens": [
+        {
+          "ticker": "SOUL",
+          "coingeckoid": "phantasma",
+          "cryptocompareid": "SOUL"
+        },
+        {
+          "ticker": "KCAL",
+          "coingeckoid": "phantasma-energy",
+          "cryptocompareid": "KCAL"
+        },
+        {
+          "ticker": "NEO",
+          "coingeckoid": "neo",
+          "cryptocompareid": "NEO"
+        },
+        {
+          "ticker": "GAS",
+          "coingeckoid": "gas",
+          "cryptocompareid": "GAS"
+        },
+        {
+          "ticker": "USDT",
+          "coingeckoid": "tether",
+          "cryptocompareid": "USDT"
+        },
+        {
+          "ticker": "ETH",
+          "coingeckoid": "ethereum",
+          "cryptocompareid": "ETH"
+        },
+        {
+          "ticker": "DAI",
+          "coingeckoid": "dai",
+          "cryptocompareid": "DAI"
+        },
+        {
+          "ticker": "DYT",
+          "coingeckoid": "dynamite",
+          "cryptocompareid": "DYT"
+        },
+        {
+          "ticker": "DANK",
+          "coingeckoid": "mu-dank",
+          "cryptocompareid": "DANK"
+        },
+        {
+          "ticker": "GOATI",
+          "coingeckoid": "GOATI",
+          "cryptocompareid": "GOATI"
+        },
+        {
+          "ticker": "USDC",
+          "coingeckoid": "usd-coin",
+          "cryptocompareid": "USDC"
+        },
+        {
+          "ticker": "BNB",
+          "coingeckoid": "binancecoin",
+          "cryptocompareid": "BNB"
+        },
+        {
+          "ticker": "BUSD",
+          "coingeckoid": "binance-usd",
+          "cryptocompareid": "BNB"
+        }
+      ],
+      "eth.block.confirmations": 12,
+      "eth.gas.limit": 100000,
+      "crypto.compare.key": "",
+      "swaps.platforms": "neo,ethereum",
+      "phantasma.interop.height": "0",
+      "neo.interop.height": "4261049",
+      "eth.interop.height": "327",
+      "neo.wif": "",
+      "eth.wif": ""
+    },
+
+    "Simulator": {
+      "simulator.enabled": true,
+      "simulator.generate.blocks": false
+    },
+
+    "App": {
+      "shell.enabled": false,
+      "node.start": true,
+      "app.name": "SPK",
+      "config": "",
+      "prompt": "[{0}] spook> ",
+      "history": ".history"
+    },
+
+
+    "Log": {
+      "file.path": "spook.log",
+      "file.level": "Debug",
+      "shell.level": "Debug"
+    },
+
+    "RPC": {
+      "rpc.address": "localhost",
+      "rpc.port": 7654
+    },
+
+    "Webhook" : {
+      "webhook.token": "",
+      "webhook.channel": "",
+      "webhook.prefix": "testnet"
+    }
+  }
+}

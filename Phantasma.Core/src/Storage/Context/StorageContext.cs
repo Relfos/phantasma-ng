@@ -1,8 +1,12 @@
 ﻿using System;
-using System.Text;
 using System.Numerics;
+using System.Text;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Serializer;
+using Phantasma.Core.Numerics;
+using Phantasma.Core.Storage.Context.Structs;
 
-namespace Phantasma.Core.Context
+namespace Phantasma.Core.Storage.Context
 {
     public abstract class StorageContext
     {
@@ -11,6 +15,7 @@ namespace Phantasma.Core.Context
         public abstract byte[] Get(StorageKey key);
         public abstract void Put(StorageKey key, byte[] value);
         public abstract void Delete(StorageKey key);
+        public abstract uint Count();
 
         public bool Has(byte[] key)
         {
@@ -58,7 +63,10 @@ namespace Phantasma.Core.Context
             return Serialization.Unserialize(bytes, type);
         }
 
-        public void Put(byte[] key, BigInteger value) { Put(key, value.ToSignedByteArray()); }
+        public void Put(byte[] key, BigInteger value)
+        {
+            Put(key, value.ToSignedByteArray());
+        }
 
         public void Put<T>(byte[] key, T obj)
         {
@@ -72,9 +80,15 @@ namespace Phantasma.Core.Context
             Put(key, bytes);
         }
 
-        public void Put(string key, byte[] value) { Put(Encoding.UTF8.GetBytes(key), value); }
+        public void Put(string key, byte[] value)
+        {
+            Put(Encoding.UTF8.GetBytes(key), value);
+        }
 
-        public void Delete(string key) { Delete(Encoding.UTF8.GetBytes(key)); }
+        public void Delete(string key)
+        {
+            Delete(Encoding.UTF8.GetBytes(key));
+        }
 
         public abstract void Visit(Action<byte[], byte[]> visitor, ulong searchCount = 0, byte[] prefix = null);
     }

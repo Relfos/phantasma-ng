@@ -1,6 +1,7 @@
-﻿using Phantasma.Core;
+﻿using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
 
-namespace Phantasma.Business
+namespace Phantasma.Business.Blockchain
 {
     public static class InteropUtils
     {

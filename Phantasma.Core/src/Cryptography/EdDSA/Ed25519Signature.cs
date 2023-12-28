@@ -1,8 +1,12 @@
 ﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Phantasma.Core.Cryptography.Enums;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Utils;
 
-namespace Phantasma.Core.EdDSA
+namespace Phantasma.Core.Cryptography.EdDSA
 {
     public class Ed25519Signature : Signature
     {
@@ -53,6 +57,21 @@ namespace Phantasma.Core.EdDSA
         {
             var sign = Ed25519.Sign(message, keypair.PrivateKey);
             return new Ed25519Signature(sign);
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (!(obj is Signature))
+            {
+                return false;
+            }
+            
+            if (obj is Ed25519Signature otherEd)
+            {
+                return this.Bytes.SequenceEqual(otherEd.Bytes);
+            }
+
+            return base.Equals(obj);
         }
     }
 }

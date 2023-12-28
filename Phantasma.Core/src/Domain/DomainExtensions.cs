@@ -1,7 +1,26 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain.Contract;
+using Phantasma.Core.Domain.Contract.Enums;
+using Phantasma.Core.Domain.Contract.Interop;
+using Phantasma.Core.Domain.Contract.Interop.Structs;
+using Phantasma.Core.Domain.Events;
+using Phantasma.Core.Domain.Events.Structs;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Domain.Serializer;
+using Phantasma.Core.Domain.Structs;
+using Phantasma.Core.Domain.Token;
+using Phantasma.Core.Domain.Token.Enums;
+using Phantasma.Core.Domain.TransactionData;
+using Phantasma.Core.Domain.Triggers;
+using Phantasma.Core.Domain.Triggers.Enums;
+using Phantasma.Core.Domain.VM;
+using Phantasma.Core.Numerics;
 
-namespace Phantasma.Core
+namespace Phantasma.Core.Domain
 {
     public static class DomainExtensions
     {
@@ -74,6 +93,23 @@ namespace Phantasma.Core
             return runtime.GetBlockByHeight(runtime.Chain.Height);
         }
 
+        private static void RequireNativeContractMap()
+        {
+            if (_nativeContractNames == null)
+            {
+                _nativeContractNames = new Dictionary<NativeContractKind, string>();
+                _nativeContractNamesInverseMap = new Dictionary<string, NativeContractKind>();
+
+                var values = Enum.GetValues<NativeContractKind>();
+                foreach (var kind in values)
+                {
+                    var name = kind.ToString().ToLower();
+                    _nativeContractNames[kind] = name;
+                    _nativeContractNamesInverseMap[name] = kind;
+                }
+            }
+        }
+
         public static IContract GetContract(this IRuntime runtime, NativeContractKind nativeContract)
         {
             return runtime.GetContract(nativeContract.GetContractName());
@@ -81,13 +117,24 @@ namespace Phantasma.Core
 
         public static string GetContractName(this NativeContractKind nativeContract)
         {
-            return nativeContract.ToString().ToLower();
+            RequireNativeContractMap();
+            return _nativeContractNames[nativeContract];
         }
 
-        public static IChain GetRootChain(this IRuntime runtime)
+        public static NativeContractKind FindNativeContractKindByName(this string name)
         {
-            return runtime.GetChainByName(DomainSettings.RootChainName);
+            RequireNativeContractMap();
+
+            if (_nativeContractNamesInverseMap.ContainsKey(name))
+            {
+                return _nativeContractNamesInverseMap[name];
+            }
+
+            return NativeContractKind.Unknown;
         }
+
+        private static Dictionary<NativeContractKind, string> _nativeContractNames = null;
+        private static Dictionary<string, NativeContractKind> _nativeContractNamesInverseMap = null;
 
         public static void Notify<T>(this IRuntime runtime, Enum kind, Address address, T content)
         {
@@ -103,13 +150,7 @@ namespace Phantasma.Core
 
         public static bool IsReadOnlyMode(this IRuntime runtime)
         {
-            return runtime.Transaction == null;
-        }
-
-        public static bool IsRootChain(this IRuntime runtime)
-        {
-            var rootChain = runtime.GetRootChain();
-            return runtime.Chain.Address == rootChain.Address;
+            return runtime.Transaction == Transaction.Null;
         }
 
         public static InteropBlock ReadBlockFromOracle(this IRuntime runtime, string platform, string chain, Hash hash)
@@ -127,6 +168,15 @@ namespace Phantasma.Core
             return tx;
         }
 
+        public static InteropTransactionData ReadCrossChainTransactionFromOracle(this IRuntime runtime, string platform, string chain,
+            Hash hash)
+        {
+            var url = GetOracleTransactionURL(platform, chain, hash);
+            var bytes = runtime.ReadOracle(url);
+            var tx = Serialization.Unserialize<InteropTransactionData>(bytes);
+            return tx;
+        }
+        
         public static InteropNFT ReadNFTFromOracle(this IRuntime runtime, string platform, string symbol, BigInteger tokenID)
         {
             var url = GetOracleNFTURL(platform, symbol, tokenID);
@@ -291,7 +341,7 @@ namespace Phantasma.Core
         }
         public static TriggerResult InvokeTrigger(this IRuntime runtime, bool allowThrow, byte[] script, NativeContractKind contextName, ContractInterface abi, string triggerName, params object[] args)
         {
-            return runtime.InvokeTrigger(allowThrow, script, contextName.ToString().ToLower(), abi, triggerName, args);
+            return runtime.InvokeTrigger(allowThrow, script, contextName.GetContractName(), abi, triggerName, args);
         }
 
         public static VMObject CallNFT(this IRuntime runtime, string symbol, BigInteger seriesID, ContractMethod method, params object[] args)

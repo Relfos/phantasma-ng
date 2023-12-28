@@ -1,12 +1,19 @@
 using System;
-using System.Linq;
 using System.Collections.Generic;
-using Microsoft.AspNetCore.Mvc;
-using Phantasma.Core;
-using Phantasma.Business.Contracts;
+using System.Linq;
 using System.Numerics;
+using Microsoft.AspNetCore.Mvc;
+using Phantasma.Business.Blockchain.Contracts.Native;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain.Contract.Market;
+using Phantasma.Core.Domain.Contract.Market.Structs;
+using Phantasma.Core.Numerics;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
+using Phantasma.Infrastructure.API.Structs;
 
-namespace Phantasma.Infrastructure.Controllers
+namespace Phantasma.Infrastructure.API.Controllers
 {
     public class AuctionController : BaseControllerV1
     {
@@ -26,7 +33,7 @@ namespace Phantasma.Infrastructure.Controllers
                 throw new APIException("Market not available");
             }
 
-            IEnumerable<MarketAuction> entries = (MarketAuction[])chain.InvokeContract(chain.Storage, "market", "GetAuctions").ToObject();
+            IEnumerable<MarketAuction> entries = (MarketAuction[])chain.InvokeContractAtTimestamp(chain.Storage, Timestamp.Now, "market", "GetAuctions").ToObject();
 
             if (!string.IsNullOrEmpty(symbol))
             {
@@ -65,7 +72,7 @@ namespace Phantasma.Infrastructure.Controllers
 
             var paginatedResult = new PaginatedResult();
 
-            IEnumerable<MarketAuction> entries = (MarketAuction[])chain.InvokeContract(chain.Storage, "market", "GetAuctions").ToObject();
+            IEnumerable<MarketAuction> entries = (MarketAuction[])chain.InvokeContractAtTimestamp(chain.Storage, Timestamp.Now, "market", "GetAuctions").ToObject();
 
             if (!string.IsNullOrEmpty(symbol))
             {
@@ -130,13 +137,13 @@ namespace Phantasma.Infrastructure.Controllers
 
             var nft = nexus.ReadNFT(nexus.RootStorage, symbol, ID);
 
-            var forSale = chain.InvokeContract(chain.Storage, "market", "HasAuction", symbol, ID).AsBool();
+            var forSale = chain.InvokeContractAtTimestamp(chain.Storage, Timestamp.Now, "market", "HasAuction", symbol, ID).AsBool();
             if (!forSale)
             {
                 throw new APIException("Token not for sale");
             }
 
-            var auction = (MarketAuction)chain.InvokeContract(chain.Storage, "market", "GetAuction", symbol, ID).ToObject();
+            var auction = (MarketAuction)chain.InvokeContractAtTimestamp(chain.Storage, Timestamp.Now, "market", "GetAuction", symbol, ID).ToObject();
 
             return new AuctionResult()
             {

@@ -1,10 +1,17 @@
 ﻿using System;
-using System.Numerics;
 using System.Collections.Generic;
-using Phantasma.Core;
-using Phantasma.Shared.Types;
+using System.Numerics;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract.Interop;
+using Phantasma.Core.Domain.Contract.Interop.Structs;
+using Phantasma.Core.Domain.Oracle;
+using Phantasma.Core.Domain.Oracle.Structs;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
 
-namespace Phantasma.Business
+namespace Phantasma.Business.Blockchain
 {
     public class BlockOracleReader : OracleReader
     {
@@ -75,6 +82,11 @@ namespace Phantasma.Business
             throw new NotImplementedException();
         }
 
+        protected override InteropTransactionData PullTransactionFromPlatform(string platformName, string chainName, Hash hash)
+        {
+            throw new NotImplementedException();
+        }
+
         protected override InteropNFT PullPlatformNFT(string platformName, string symbol, BigInteger tokenID)
         {
             throw new NotImplementedException();
@@ -87,6 +99,7 @@ namespace Phantasma.Business
 
         public new void Clear()
         {
+            throw new NotImplementedException();
         }
     }
 }

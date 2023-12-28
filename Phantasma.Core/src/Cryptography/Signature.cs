@@ -1,7 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.IO;
+using Phantasma.Core.Cryptography.Enums;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Interfaces;
 
-namespace Phantasma.Core
+namespace Phantasma.Core.Cryptography
 {
     public abstract class Signature: ISerializable
     {
@@ -31,6 +35,14 @@ namespace Phantasma.Core
 
                 return stream.ToArray();
             }
+        }
+
+        public override bool Equals(object obj)
+        {
+            if ( !(obj is Signature) )
+                return false;
+
+            return base.Equals(obj);
         }
     }
 }

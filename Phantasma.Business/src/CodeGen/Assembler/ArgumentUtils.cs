@@ -1,9 +1,12 @@
 ﻿using System;
-using System.Numerics;
 using System.Collections.Generic;
-using Phantasma.Core;
+using System.Numerics;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.VM;
+using Phantasma.Core.Domain.VM.Enums;
+using Phantasma.Core.Numerics;
 
-namespace Phantasma.Business.Assembler
+namespace Phantasma.Business.CodeGen.Assembler
 {
     // NOTE since everything here is done as static, its necessary to call ClearAlias() for every new compilation!
     // later I recommend rewriting this as a normal class

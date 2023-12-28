@@ -1,10 +1,15 @@
-using System.Linq;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Mvc;
-using Phantasma.Core;
-using Phantasma.Business.Contracts;
+using Phantasma.Business.Blockchain.Contracts.Native;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract.Governance;
+using Phantasma.Core.Domain.Contract.Governance.Structs;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
+using Phantasma.Infrastructure.API.Structs;
 
-namespace Phantasma.Infrastructure.Controllers
+namespace Phantasma.Infrastructure.API.Controllers
 {
     public class NexusController : BaseControllerV1
     {
@@ -16,7 +21,7 @@ namespace Phantasma.Infrastructure.Controllers
 
             var tokenList = new List<TokenResult>();
 
-            var symbols = nexus.GetTokens(nexus.RootStorage);
+            var symbols = nexus.GetAvailableTokenSymbols(nexus.RootStorage);
             foreach (var token in symbols)
             {
                 var entry = NexusAPI.FillToken(token, false, extended);
@@ -53,7 +58,7 @@ namespace Phantasma.Infrastructure.Controllers
                 chainList.Add(single);
             }
 
-            var governance = (GovernancePair[])nexus.RootChain.InvokeContract(nexus.RootChain.Storage, "governance", nameof(GovernanceContract.GetValues)).ToObject();
+            var governance = (GovernancePair[])nexus.RootChain.InvokeContractAtTimestamp(nexus.RootChain.Storage, Timestamp.Now, "governance", nameof(GovernanceContract.GetValues)).ToArray<GovernancePair>();
 
             var orgs = nexus.GetOrganizations(nexus.RootStorage);
 

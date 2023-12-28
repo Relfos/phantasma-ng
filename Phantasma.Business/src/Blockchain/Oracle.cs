@@ -1,13 +1,34 @@
 ﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
+using Phantasma.Business.Blockchain.Contracts;
+using Phantasma.Business.Blockchain.Contracts.Native;
 using Phantasma.Core;
-using Phantasma.Shared;
-using Phantasma.Shared.Types;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract;
+using Phantasma.Core.Domain.Contract.Enums;
+using Phantasma.Core.Domain.Contract.Interop;
+using Phantasma.Core.Domain.Contract.Interop.Structs;
+using Phantasma.Core.Domain.Events;
+using Phantasma.Core.Domain.Events.Structs;
+using Phantasma.Core.Domain.Exceptions;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Domain.Oracle;
+using Phantasma.Core.Domain.Oracle.Structs;
+using Phantasma.Core.Domain.Serializer;
+using Phantasma.Core.Domain.Structs;
+using Phantasma.Core.Numerics;
+using Phantasma.Core.Storage.Context;
+using Phantasma.Core.Storage.Context.Structs;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
+using Serilog;
 
-namespace Phantasma.Business
+namespace Phantasma.Business.Blockchain
 {
     public abstract class OracleReader : IOracleReader
     {
@@ -17,15 +38,21 @@ namespace Phantasma.Business
         public BigInteger ProtocolVersion => Nexus.GetGovernanceValue(Nexus.RootStorage, Nexus.NexusProtocolVersionTag);
 
         protected ConcurrentDictionary<string, OracleEntry> _entries = new ConcurrentDictionary<string, OracleEntry>();
-        protected ConcurrentDictionary<string, OracleEntry> _txEntries = new ConcurrentDictionary<string, OracleEntry>();
 
-        public IEnumerable<OracleEntry> Entries => (IEnumerable<OracleEntry>) _entries.Values;
+        protected ConcurrentDictionary<string, OracleEntry>
+            _txEntries = new ConcurrentDictionary<string, OracleEntry>();
+
+        public IEnumerable<OracleEntry> Entries => (IEnumerable<OracleEntry>)_entries.Values;
 
         protected abstract T PullData<T>(Timestamp time, string url);
         protected abstract decimal PullPrice(Timestamp time, string symbol);
         protected abstract BigInteger PullFee(Timestamp time, string platform);
-        protected abstract InteropBlock PullPlatformBlock(string platformName, string chainName, Hash hash, BigInteger height = new BigInteger());
+
+        protected abstract InteropBlock PullPlatformBlock(string platformName, string chainName, Hash hash,
+            BigInteger height = new BigInteger());
+
         protected abstract InteropTransaction PullPlatformTransaction(string platformName, string chainName, Hash hash);
+        protected abstract InteropTransactionData PullTransactionFromPlatform(string platformName, string chainName, Hash hash);
         protected abstract InteropNFT PullPlatformNFT(string platformName, string symbol, BigInteger tokenID);
         public abstract string GetCurrentHeight(string platformName, string chainName);
         public abstract void SetCurrentHeight(string platformName, string chainName, string height);
@@ -38,6 +65,14 @@ namespace Phantasma.Business
             this.Nexus = nexus;
         }
 
+        /// <summary>
+        /// Method is used to read from Oracle
+        /// </summary>
+        /// <param name="time"></param>
+        /// <param name="url"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        /// <exception cref="OracleException"></exception>
         public virtual T Read<T>(Timestamp time, string url) where T : class
         {
             if (TryGetOracleCache<T>(url, out T cachedEntry))
@@ -60,8 +95,7 @@ namespace Phantasma.Business
                     args = args.Skip(2).ToArray();
                     content = (T)(object)ReadNFTOracle(platformName, args);
                 }
-                else
-                if (Nexus.PlatformExists(Nexus.RootStorage, platformName))
+                else if (Nexus.PlatformExists(Nexus.RootStorage, platformName))
                 {
                     args = args.Skip(2).ToArray();
                     content = ReadChainOracle<T>(platformName, chainName, args);
@@ -87,8 +121,7 @@ namespace Phantasma.Business
                     throw new OracleException("invalid oracle platform: " + platformName);
                 }
             }
-            else
-            if (url.StartsWith(priceTag))
+            else if (url.StartsWith(priceTag))
             {
                 var baseSymbol = url.Substring(priceTag.Length);
 
@@ -97,7 +130,7 @@ namespace Phantasma.Business
                     throw new OracleException("invalid oracle price request");
                 }
 
-                BigInteger val = new BigInteger();
+                BigInteger val;
 
                 if (!Nexus.TokenExists(Nexus.RootStorage, baseSymbol))
                 {
@@ -106,25 +139,41 @@ namespace Phantasma.Business
 
                 if (baseSymbol == DomainSettings.FuelTokenSymbol)
                 {
-
-                    var stakingURL = priceTag + DomainSettings.StakingTokenSymbol;
-                    decimal soulPriceDec = 0;
-                    if (TryGetOracleCache(stakingURL, out byte[] cachedContent))
+                    var soulPriceBi = this.ReadPrice(time, DomainSettings.StakingTokenSymbol);
+                    var soulPriceDec = UnitConversion.ToDecimal(soulPriceBi, DomainSettings.FiatTokenDecimals);
+                    var existsLPToken = Nexus.TokenExists(Nexus.RootStorage, DomainSettings.LiquidityTokenSymbol);
+                    BigInteger exchangeVersion = 0;
+                    try
                     {
-                        BigInteger soulPriceBi;
-                        soulPriceBi = new BigInteger(cachedContent);
-                        soulPriceDec = UnitConversion.ToDecimal(soulPriceBi, DomainSettings.FiatTokenDecimals);
+                        var keyForField = NativeContract.GetKeyForField(NativeContractKind.Exchange, "_DEXversion", true);
+                        var storageValue = new StorageValue(keyForField, Nexus.RootStorage);
+                        exchangeVersion = storageValue.Get<BigInteger>();
+                        //exchangeVersion = Nexus.RootChain.InvokeContractAtTimestamp(Nexus.RootStorage, time, NativeContractKind.Exchange, nameof(ExchangeContract.GetDexVersion)).AsNumber();
+                    }
+                    catch ( Exception e)
+                    {
+                        Log.Error("Error getting exchange version {Exception}", e);
+                    }
+
+                    if (existsLPToken && exchangeVersion == 1)
+                    {
+                        try
+                        {
+                            val = Nexus.RootChain.InvokeContractAtTimestamp(Nexus.RootStorage, time,
+                                NativeContractKind.Exchange, nameof(ExchangeContract.GetRate),
+                                DomainSettings.StakingTokenSymbol, DomainSettings.FuelTokenSymbol, 
+                                UnitConversion.ToBigInteger(1, DomainSettings.StakingTokenDecimals)).AsNumber();
+                        }
+                        catch (Exception e)
+                        {
+                            val = UnitConversion.ToBigInteger(soulPriceDec / 5, DomainSettings.FiatTokenDecimals);
+
+                        }
                     }
                     else
                     {
-                        soulPriceDec = PullPrice(time, DomainSettings.StakingTokenSymbol);
-                        var soulPriceBi = UnitConversion.ToBigInteger(soulPriceDec, DomainSettings.FiatTokenDecimals);
-
-                        CacheOracleData<T>(url, soulPriceBi.ToSignedByteArray() as T);
-
+                        val = UnitConversion.ToBigInteger(soulPriceDec / 5, DomainSettings.FiatTokenDecimals);
                     }
-
-                    val = UnitConversion.ToBigInteger(soulPriceDec/5, DomainSettings.FiatTokenDecimals);
                 }
                 else
                 {
@@ -134,8 +183,7 @@ namespace Phantasma.Business
 
                 content = val.ToSignedByteArray() as T;
             }
-            else
-            if (url.StartsWith(feeTag))
+            else if (url.StartsWith(feeTag))
             {
                 var platform = url.Substring(feeTag.Length);
 
@@ -162,6 +210,13 @@ namespace Phantasma.Business
             return content;
         }
 
+        /// <summary>
+        /// Method is used to get cached data from Oracle
+        /// </summary>
+        /// <param name="url"></param>
+        /// <param name="content"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
         private bool TryGetOracleCache<T>(string url, out T content)
         {
             lock (_txEntries)
@@ -186,6 +241,13 @@ namespace Phantasma.Business
             return false;
         }
 
+        /// <summary>
+        /// Method used to cache data from Oracle.
+        /// </summary>
+        /// <param name="url"></param>
+        /// <param name="content"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <exception cref="OracleException"></exception>
         private void CacheOracleData<T>(string url, T content)
         {
             if (content == null)
@@ -206,6 +268,13 @@ namespace Phantasma.Business
             }
         }
 
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="events"></param>
+        /// <param name="output"></param>
+        /// <param name="predicate"></param>
+        /// <returns></returns>
         private bool FindMatchingEvent(IEnumerable<Event> events, out Event output, Func<Event, bool> predicate)
         {
             foreach (var evt in events)
@@ -221,6 +290,15 @@ namespace Phantasma.Business
             return false;
         }
 
+        /// <summary>
+        /// To read the chain oracle.
+        /// </summary>
+        /// <param name="platformName"></param>
+        /// <param name="chainName"></param>
+        /// <param name="input"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        /// <exception cref="OracleException"></exception>
         private T ReadChainOracle<T>(string platformName, string chainName, string[] input) where T : class
         {
             if (input == null || input.Length != 2)
@@ -233,174 +311,195 @@ namespace Phantasma.Business
             {
                 case "tx":
                 case "transaction":
-                    {
-                        Hash hash;
-                        if (Hash.TryParse(input[1], out hash))
-                        {
-                            InteropTransaction tx;
-
-                            if (platformName == DomainSettings.PlatformName)
-                            {
-                                var chain = Nexus.GetChainByName(chainName);
-
-                                var blockHash = chain.GetBlockHashOfTransaction(hash);
-                                var block = chain.GetBlockByHash(blockHash);
-
-                                var temp = chain.GetTransactionByHash(hash);
-                                if (block == null || temp == null)
-                                {
-                                    throw new OracleException($"invalid transaction hash for chain {chainName} @ {platformName}");
-                                }
-
-                                var events = block.GetEventsForTransaction(hash);
-                                var transfers = new List<InteropTransfer>();
-                                foreach (var evt in events)
-                                {
-                                    switch (evt.Kind)
-                                    {
-                                        case EventKind.TokenSend:
-                                            {
-                                                var data = evt.GetContent<TokenEventData>();
-                                                Event other;
-                                                if (FindMatchingEvent(events, out other,
-                                                    (x) =>
-                                                    {
-                                                        if (x.Kind != EventKind.TokenReceive && x.Kind != EventKind.TokenStake)
-                                                        {
-                                                            return false;
-                                                        }
-
-                                                        var y = x.GetContent<TokenEventData>();
-                                                        return y.Symbol == data.Symbol && y.Value == data.Value;
-                                                    }))
-                                                {
-                                                    var otherData = other.GetContent<TokenEventData>();
-
-                                                    byte[] rawData = null;
-
-                                                    var token = Nexus.GetTokenInfo(Nexus.RootStorage, data.Symbol);
-                                                    if (!token.IsFungible())
-                                                    {
-                                                        Event nftEvent;
-                                                        if (!FindMatchingEvent(events, out nftEvent,
-                                                            (x) =>
-                                                            {
-                                                                if (x.Kind != EventKind.PackedNFT)
-                                                                {
-                                                                    return false;
-                                                                }
-
-                                                                var y = x.GetContent<PackedNFTData>();
-                                                                return y.Symbol == data.Symbol;
-                                                            }))
-                                                        {
-                                                            throw new OracleException($"invalid nft transfer with hash in chain {chainName} @ {platformName}");
-                                                        }
-
-                                                        rawData = nftEvent.Data;
-                                                    }
-
-                                                    transfers.Add(new InteropTransfer(data.ChainName, evt.Address, otherData.ChainName, other.Address, Address.Null, data.Symbol, data.Value, rawData));
-                                                }
-                                                break;
-                                            }
-                                    }
-                                }
-
-                                tx = new InteropTransaction(hash, transfers);
-                                if (typeof(T) == typeof(byte[]))
-                                {
-                                    return Serialization.Serialize(tx) as T;
-                                }
-                            }
-                            else
-                            {
-                                tx = PullPlatformTransaction(platformName, chainName, hash);
-
-                                if (tx == null)
-                                {
-                                    return null;
-                                }
-                            }
-
-                            if (typeof(T) == typeof(byte[]))
-                            {
-                                return Serialization.Serialize(tx) as T;
-                            }
-
-                            return tx as T;
-                        }
-                        else
-                        {
-                            throw new OracleException($"invalid transaction hash for chain {chainName} @ {platformName}");
-                        }
-                    }
+                {
+                    return HandleTransactionData<T>(platformName, chainName, input[1]);
+                }
 
                 case "block":
-                    {
-                        Hash hash;
-                        InteropBlock block;
-                        BigInteger height;
-                        // if it fails it might be block height
-                        if (Hash.TryParse(input[1], out hash))
-                        {
-                            if (platformName == DomainSettings.PlatformName)
-                            {
-                                var chain = Nexus.GetChainByName(chainName);
-                                var temp = chain.GetBlockByHash(hash);
-                                if (temp == null)
-                                {
-                                    throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
-                                }
-
-                                block = new InteropBlock(platformName, chainName, hash, temp.TransactionHashes);
-                            }
-                            else
-                            {
-                                block = PullPlatformBlock(platformName, chainName, hash);
-                            }
-
-                            if (typeof(T) == typeof(byte[]))
-                            {
-                                return Serialization.Serialize(block) as T;
-                            }
-
-                            return (block) as T;
-                        }
-                        else if (BigInteger.TryParse(input[1], out height))
-                        {
-                            if (platformName == DomainSettings.PlatformName)
-                            {
-                                var chain = Nexus.GetChainByName(chainName);
-                                var temp = chain.GetBlockByHash(hash);
-                                if (temp == null)
-                                {
-                                    throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
-                                }
-
-                                block = new InteropBlock(platformName, chainName, hash, temp.TransactionHashes);
-                            }
-                            else
-                            {
-                                block = PullPlatformBlock(platformName, chainName, Hash.Null, height);
-                            }
-
-                            if (typeof(T) == typeof(byte[]))
-                            {
-                                return Serialization.Serialize(block) as T;
-                            }
-
-                            return (block) as T;
-
-                        }
-                        else
-                        {
-                            throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
-                        }
-                    }
+                {
+                    return HandleBlockData<T>(platformName, chainName, input[1]);
+                }
 
                 default:
                     throw new OracleException("unknown platform oracle");
+            }
+        }
+
+        /// <summary>
+        /// Handle the Transaction Data
+        /// </summary>
+        /// <param name="platformName"></param>
+        /// <param name="chainName"></param>
+        /// <param name="input"></param>
+        /// <typeparam name="T"></typeparam>
+        /// <returns></returns>
+        /// <exception cref="OracleException"></exception>
+        private T HandleTransactionData<T>(string platformName, string chainName, string input) where T : class
+        {
+            Hash hash;
+            if (Hash.TryParse(input, out hash))
+            {
+                InteropTransaction tx;
+
+                if (platformName == DomainSettings.PlatformName)
+                {
+                    var chain = Nexus.GetChainByName(chainName);
+
+                    var blockHash = chain.GetBlockHashOfTransaction(hash);
+                    var block = chain.GetBlockByHash(blockHash);
+
+                    var temp = chain.GetTransactionByHash(hash);
+                    if (block == null || temp == null)
+                    {
+                        throw new OracleException($"invalid transaction hash for chain {chainName} @ {platformName}");
+                    }
+
+                    var events = block.GetEventsForTransaction(hash);
+                    var transfers = new List<InteropTransfer>();
+                    foreach (var evt in events)
+                    {
+                        switch (evt.Kind)
+                        {
+                            case EventKind.TokenSend:
+                            {
+                                var data = evt.GetContent<TokenEventData>();
+                                Event other;
+                                if (FindMatchingEvent(events, out other,
+                                        (x) =>
+                                        {
+                                            if (x.Kind != EventKind.TokenReceive && x.Kind != EventKind.TokenStake)
+                                            {
+                                                return false;
+                                            }
+
+                                            var y = x.GetContent<TokenEventData>();
+                                            return y.Symbol == data.Symbol && y.Value == data.Value;
+                                        }))
+                                {
+                                    var otherData = other.GetContent<TokenEventData>();
+
+                                    byte[] rawData = null;
+
+                                    var token = Nexus.GetTokenInfo(Nexus.RootStorage, data.Symbol);
+                                    if (!token.IsFungible())
+                                    {
+                                        Event nftEvent;
+                                        if (!FindMatchingEvent(events, out nftEvent,
+                                                (x) =>
+                                                {
+                                                    if (x.Kind != EventKind.PackedNFT)
+                                                    {
+                                                        return false;
+                                                    }
+
+                                                    var y = x.GetContent<PackedNFTData>();
+                                                    return y.Symbol == data.Symbol;
+                                                }))
+                                        {
+                                            throw new OracleException(
+                                                $"invalid nft transfer with hash in chain {chainName} @ {platformName}");
+                                        }
+
+                                        rawData = nftEvent.Data;
+                                    }
+
+                                    transfers.Add(new InteropTransfer(data.ChainName, evt.Address, otherData.ChainName,
+                                        other.Address, Address.Null, data.Symbol, data.Value, rawData));
+                                }
+
+                                break;
+                            }
+                        }
+                    }
+
+                    tx = new InteropTransaction(hash, transfers);
+                    if (typeof(T) == typeof(byte[]))
+                    {
+                        return Serialization.Serialize(tx) as T;
+                    }
+                }
+                else
+                {
+                    tx = PullPlatformTransaction(platformName, chainName, hash);
+
+                    if (tx == null)
+                    {
+                        return null;
+                    }
+                }
+
+                if (typeof(T) == typeof(byte[]))
+                {
+                    return Serialization.Serialize(tx) as T;
+                }
+
+                return tx as T;
+            }
+            else
+            {
+                throw new OracleException($"invalid transaction hash for chain {chainName} @ {platformName}");
+            }
+        }
+
+        private T HandleBlockData<T>(string platformName, string chainName, string input) where T : class
+        {
+            Hash hash;
+            InteropBlock block;
+            BigInteger height;
+            // if it fails it might be block height
+            if (Hash.TryParse(input, out hash))
+            {
+                if (platformName == DomainSettings.PlatformName)
+                {
+                    var chain = Nexus.GetChainByName(chainName);
+                    var temp = chain.GetBlockByHash(hash);
+                    if (temp == null)
+                    {
+                        throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
+                    }
+
+                    block = new InteropBlock(platformName, chainName, hash, temp.TransactionHashes);
+                }
+                else
+                {
+                    block = PullPlatformBlock(platformName, chainName, hash);
+                }
+
+                if (typeof(T) == typeof(byte[]))
+                {
+                    return Serialization.Serialize(block) as T;
+                }
+
+                return (block) as T;
+            }
+            else if (BigInteger.TryParse(input, out height))
+            {
+                if (platformName == DomainSettings.PlatformName)
+                {
+                    var chain = Nexus.GetChainByName(chainName);
+                    var temp = chain.GetBlockByHash(hash);
+                    if (temp == null)
+                    {
+                        throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
+                    }
+
+                    block = new InteropBlock(platformName, chainName, hash, temp.TransactionHashes);
+                }
+                else
+                {
+                    block = PullPlatformBlock(platformName, chainName, Hash.Null, height);
+                }
+
+                if (typeof(T) == typeof(byte[]))
+                {
+                    return Serialization.Serialize(block) as T;
+                }
+
+                return (block) as T;
+            }
+            else
+            {
+                throw new OracleException($"invalid block hash for chain {chainName} @ {platformName}");
             }
         }
 
@@ -428,10 +527,10 @@ namespace Phantasma.Business
             return PullPlatformNFT(platformName, symbol, tokenID);
         }
 
-        public InteropTransaction ReadTransaction(string platform, string chain, Hash hash)
+        public InteropTransaction ReadTransaction(Timestamp time, string platform, string chain, Hash hash)
         {
             var url = DomainExtensions.GetOracleTransactionURL(platform, chain, hash);
-            var bytes = this.Read<InteropTransaction>(Timestamp.Now, url);
+            var bytes = this.Read<InteropTransaction>(time, url);
             return bytes;
         }
 
@@ -448,6 +547,12 @@ namespace Phantasma.Business
                 _entries.Merge(_txEntries);
                 _txEntries.Clear();
             }
+        }
+
+        // returns how many pending oracle Calls are there for current transaction
+        public int GetMultiplier()
+        {
+            return 1 + _txEntries.Count();
         }
     }
 }

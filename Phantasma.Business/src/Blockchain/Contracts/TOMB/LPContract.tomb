@@ -1,0 +1,126 @@
+struct LPTokenContentROM
+{
+    Symbol0:string;
+    Symbol1:string;
+    ID:number;
+}
+
+struct LPTokenContentRAM 
+{
+    Amount0:number;
+    Amount1:number;
+    Liquidity:number;
+    ClaimedFeesSymbol0:number;
+    ClaimedFeesSymbol1:number;
+}
+
+token LP {
+	import Runtime;
+	import Time;
+	import NFT;
+	import Call;
+	import Address;
+	import Token;
+	import Stake;
+	
+	global owner:address;
+	global _changed:bool;
+	
+    const LP_SERIES: number = 1;
+	property name:string = "Phantasma Liquidity Provider";
+	property symbol:string = "LP";
+	property isTransferable:bool = false;
+	property isBurnable:bool = true;
+	property decimals:number = 8;
+    property isFinite:bool = false;
+    property maxSupply:number = 0;
+	property owner:address = owner;
+
+	nft LPNFT<LPTokenContentROM, LPTokenContentRAM> {
+		property name:string {
+			return "LP #" + _mintID;
+		}
+
+		property description:string {
+			return "Liqudity for pool " + _ROM.Symbol0 + " / " + _ROM.Symbol1;
+		}
+
+		property imageURL:string {
+			return "https://phantasma.io/img/lp.png";
+		}
+
+		property infoURL:string {
+			return "https://phantasma.io/lp/" + _tokenID;
+		}
+	}
+
+	constructor(contractOwner:address)	{
+		owner = contractOwner;
+		_changed = false;
+		NFT.createSeries(owner, $THIS_SYMBOL, 0, 0, TokenSeries.Unique, LPNFT);
+	}
+	
+	public Mint(from:address, rom:LPTokenContentROM, ram:LPTokenContentRAM ):number {
+	    Runtime.expect(Runtime.isWitness(owner), "witness failed");
+	    local id : number = NFT.mint($THIS_ADDRESS, from, $THIS_SYMBOL, rom, ram, LP_SERIES);
+	    return id;
+	}
+	
+	public SendFundsAndStake(from:address, amount:number){
+        Runtime.expect(Runtime.isWitness(from), "witness failed");
+        Token.transfer(from, $THIS_ADDRESS, "SOUL", amount);
+        Stake.stake($THIS_ADDRESS, amount);
+	}
+	
+	public ChangeOwner(from:address){
+	    Runtime.expect(!_changed, "Owner was already changed");
+        Runtime.expect(Runtime.isWitness(owner), "witness failed");
+		Runtime.expect(Address.isSystem(from), "the new address is not a system address");
+        owner = from;
+	    _changed = true;
+	}
+	
+	public upgradeToDex(from: address){
+        Runtime.expect(Runtime.isWitness(owner), "witness failed");
+        Call.contract<none>("exchange", "MigrateToV3");
+	}
+	
+	public upgradeToDexNoPool(from: address){
+        Runtime.expect(Runtime.isWitness(owner), "witness failed");
+        Call.contract<none>("exchange", "Migrate");
+	}
+	
+	trigger onUpgrade(from:address) 
+    {	
+        Runtime.expect(Runtime.isWitness(owner), "witness failed");
+        return;
+    }
+	
+	trigger onMigrate(from:address, to:address) {
+	    Runtime.expect(Runtime.isWitness(from), "witness failed");
+	}
+	
+	trigger onMint(from:address, to:address, symbol:string, tokenID:number) 
+    {
+        local contractSymbol: string = $THIS_SYMBOL;
+        Runtime.expect(symbol == contractSymbol, "invalid symbol");
+        Runtime.expect(Runtime.isWitness(owner), "witness failed");
+        return;
+    }
+    
+    public burn(from:address, tokenID:number ){
+       Runtime.expect(Runtime.isWitness(from), "witness failed");
+       return;
+    }
+    
+    trigger onBurn(from:address, to:address, symbol:string, tokenID:number)
+    {
+        Runtime.expect(Runtime.isWitness(from), "witness failed");
+        Call.contract<none>("exchange", "BurnNFT", from, tokenID);
+        return;
+    }
+    
+    trigger onKill(from:address){
+        throw "Not allowed to kill.";
+    }
+}

@@ -2,8 +2,13 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Phantasma.Core.Cryptography.ECDsa.Enums;
+using Phantasma.Core.Cryptography.Enums;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Utils;
 
-namespace Phantasma.Core.ECC
+namespace Phantasma.Core.Cryptography.ECDsa
 {
     public class ECDsaSignature : Signature
     {
@@ -85,6 +90,22 @@ namespace Phantasma.Core.ECC
             }
 
             return pubKey;
+        }
+        
+        public override bool Equals(object obj)
+        {
+            if (!(obj is Signature))
+            {
+                return false;
+            }
+
+            if (obj is ECDsaSignature)
+            {
+                var otherSig = (ECDsaSignature)obj;
+                return this.Bytes.SequenceEqual(otherSig.Bytes) && this.Curve == otherSig.Curve;
+            }
+
+            return base.Equals(obj);
         }
     }
 }

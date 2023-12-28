@@ -1,8 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
-using Phantasma.Business.Contracts;
-using Phantasma.Core;
+using Phantasma.Business.Blockchain.Contracts.Native;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain.Contract.Sale;
+using Phantasma.Core.Domain.Contract.Sale.Structs;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
+using Phantasma.Infrastructure.API.Structs;
 
-namespace Phantasma.Infrastructure.Controllers
+namespace Phantasma.Infrastructure.API.Controllers
 {
     public class SaleController : BaseControllerV1
     {
@@ -12,7 +18,7 @@ namespace Phantasma.Infrastructure.Controllers
         {
             var nexus = NexusAPI.GetNexus();
 
-            var hash = (Hash)nexus.RootChain.InvokeContract(nexus.RootChain.Storage, "sale", nameof(SaleContract.GetLatestSaleHash)).ToObject();
+            var hash = (Hash)nexus.RootChain.InvokeContractAtTimestamp(nexus.RootChain.Storage, Timestamp.Now, "sale", nameof(SaleContract.GetLatestSaleHash)).ToObject();
 
             return hash.ToString();
         }
@@ -30,7 +36,7 @@ namespace Phantasma.Infrastructure.Controllers
 
             var nexus = NexusAPI.GetNexus();
 
-            var sale = (SaleInfo)nexus.RootChain.InvokeContract(nexus.RootChain.Storage, "sale", nameof(SaleContract.GetSale), hash).ToObject();
+            var sale = (SaleInfo)nexus.RootChain.InvokeContractAtTimestamp(nexus.RootChain.Storage, Timestamp.Now, "sale", nameof(SaleContract.GetSale), hash).ToObject();
 
             return new CrowdsaleResult()
             {

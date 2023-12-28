@@ -1,16 +1,38 @@
 ﻿using System;
-using System.Linq;
-using System.Text;
-using System.Numerics;
 using System.Collections.Generic;
-using Phantasma.Core;
-using Phantasma.Core.Context;
-using Phantasma.Shared.Types;
+using System.Linq;
+using System.Numerics;
+using System.Text;
+using Phantasma.Business.Blockchain.VM;
+using Phantasma.Business.CodeGen.Assembler;
+using Phantasma.Business.VM;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Cryptography.Structs;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Contract;
+using Phantasma.Core.Domain.Contract.Structs;
+using Phantasma.Core.Domain.Events;
+using Phantasma.Core.Domain.Events.Structs;
+using Phantasma.Core.Domain.Execution;
+using Phantasma.Core.Domain.Execution.Enums;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Domain.TransactionData;
+using Phantasma.Core.Domain.Triggers;
+using Phantasma.Core.Domain.Triggers.Enums;
+using Phantasma.Core.Domain.VM;
+using Phantasma.Core.Domain.VM.Enums;
+using Phantasma.Core.Domain.VM.Structs;
+using Phantasma.Core.Storage.Context;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
 
-namespace Phantasma.Business.Tokens
+namespace Phantasma.Business.Blockchain.Tokens
 {
     public static class TokenUtils
-    {
+    {        
+        public static readonly string ImageURLMethodName = "getImageURL";
+        public static readonly string InfoURLMethodName = "getInfoURL";
+
         public static Address GetContractAddress(this IToken token)
         {
             return GetContractAddress(token.Symbol);
@@ -18,7 +40,7 @@ namespace Phantasma.Business.Tokens
 
         public static Address GetContractAddress(string symbol)
         {
-            return SmartContract.GetAddressForName(symbol);
+            return SmartContract.GetAddressFromContractName(symbol);
         }
 
         public static IEnumerable<ContractMethod> GetTriggersForABI(Dictionary<string, int> labels)
@@ -171,7 +193,7 @@ namespace Phantasma.Business.Tokens
 
             DebugInfo debugInfo;
             Dictionary<string, int> labels;
-            script = Assembler.AssemblerUtils.BuildScript(asm, "dummy", out debugInfo, out labels);
+            script = AssemblerUtils.BuildScript(asm, "dummy", out debugInfo, out labels);
 
             var standardABI = GetNFTStandard();
 
@@ -186,7 +208,7 @@ namespace Phantasma.Business.Tokens
 
             if (method == null)
             {
-                throw new Exception("ABI is missing: " + method.name);
+                throw new Exception("ABI is missing: " + methodName);
             }
 
             var changeSet = storage as StorageChangeSetContext;
@@ -197,7 +219,7 @@ namespace Phantasma.Business.Tokens
             }
 
             var oracle = chain.Nexus.GetOracleReader();
-            var vm = new RuntimeVM(-1, script, (uint)method.offset, chain, Address.Null, Timestamp.Now, null, changeSet, oracle, ChainTask.Null, true);
+            var vm = new RuntimeVM(-1, script, (uint)method.offset, chain, Address.Null, chain.CurrentTime, Transaction.Null, changeSet, oracle, ChainTask.Null);
 
             //var vm = new GasMachine(script, (uint)method.offset);
 
@@ -211,6 +233,11 @@ namespace Phantasma.Business.Tokens
             if (result == ExecutionState.Halt)
             {
                 return vm.Stack.Pop();
+            }
+
+            if (result == ExecutionState.Fault)
+            {
+                return new VMObject().SetValue("unknown");
             }
 
             throw new Exception("Script execution failed for: " + method.name);
@@ -228,8 +255,7 @@ namespace Phantasma.Business.Tokens
                 {
                     propName = propName.Substring(2);
                 }
-                else
-                if (propName.StartsWith("get"))
+                else if (propName.StartsWith("get"))
                 {
                     propName = propName.Substring(3);
                 }
@@ -255,8 +281,7 @@ namespace Phantasma.Business.Tokens
                 {
                     propName = propName.Substring(2);
                 }
-                else
-                if (propName.StartsWith("get"))
+                else if (propName.StartsWith("get"))
                 {
                     propName = propName.Substring(3);
                 }

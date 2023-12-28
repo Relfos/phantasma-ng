@@ -1,20 +1,15 @@
+using System;
+using System.Linq;
 using Org.BouncyCastle.Asn1;
 using Org.BouncyCastle.Asn1.Sec;
 using Org.BouncyCastle.Asn1.X9;
 using Org.BouncyCastle.Crypto.Parameters;
 using Org.BouncyCastle.Math;
 using Org.BouncyCastle.Security;
-using System;
-using System.Linq;
+using Phantasma.Core.Cryptography.ECDsa.Enums;
 
-namespace Phantasma.Core.ECC
+namespace Phantasma.Core.Cryptography.ECDsa
 {
-    public enum ECDsaCurve
-    {
-        Secp256r1,
-        Secp256k1,
-    }
-
     public static class ECDsa
     {
         public static byte[] GetPublicKey(byte[] privateKey, bool compressed, ECDsaCurve curve)
@@ -91,7 +86,7 @@ namespace Phantasma.Core.ECC
 
         public static byte[] FromDER(byte[] signature)
         {
-            var decoder = new Asn1InputStream(signature);
+            using var decoder = new Asn1InputStream(signature);
             var seq = decoder.ReadObject() as DerSequence;
             if (seq == null || seq.Count != 2)
                 throw new FormatException("Invalid DER Signature");

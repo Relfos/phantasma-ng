@@ -2,12 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Numerics;
+using Phantasma.Core.Domain;
+using Phantasma.Core.Domain.Interfaces;
+using Phantasma.Core.Domain.Serializer;
+using Phantasma.Core.Numerics;
+using Phantasma.Core.Types;
+using Phantasma.Core.Types.Structs;
 
-namespace Phantasma.Core
+namespace Phantasma.Core.Utils
 {
     public static class IOUtils
     {
@@ -43,6 +49,11 @@ namespace Phantasma.Core
             writer.Write(bytes);
         }
 
+        public static void WriteTimestamp(this BinaryWriter writer, Timestamp timestamp)
+        {
+            writer.Write(timestamp.Value); // UInt32
+        }
+
         public static void WriteByteArray(this BinaryWriter writer, byte[] bytes)
         {
             if (bytes == null || bytes.Length == 0)
@@ -50,6 +61,7 @@ namespace Phantasma.Core
                 writer.WriteVarInt(0);
                 return;
             }
+
             writer.WriteVarInt(bytes.Length);
             writer.Write(bytes);
         }
@@ -66,7 +78,7 @@ namespace Phantasma.Core
             writer.WriteVarInt(bytes.Length);
             writer.Write(bytes);
         }
-        
+
         public static ulong ReadVarInt(this BinaryReader reader, ulong max = ulong.MaxValue)
         {
             byte fb = reader.ReadByte();
@@ -88,6 +100,12 @@ namespace Phantasma.Core
             var length = reader.ReadByte();
             var bytes = reader.ReadBytes(length);
             return new BigInteger(bytes);
+        }
+
+        public static Timestamp ReadTimestamp(this BinaryReader reader)
+        {
+            var value = reader.ReadUInt32();
+            return new Timestamp(value);
         }
 
         public static byte[] ReadByteArray(this BinaryReader reader)
@@ -182,6 +200,7 @@ namespace Phantasma.Core
             {
                 value_size = value.Count * Marshal.SizeOf<T>();
             }
+
             return GetVarSize(value.Count) + value_size;
         }
 
@@ -211,7 +230,8 @@ namespace Phantasma.Core
             }
         }
 
-        public static T[] ReadSerializableArray<T>(this BinaryReader reader, int max = 0x1000000) where T : ISerializable, new()
+        public static T[] ReadSerializableArray<T>(this BinaryReader reader, int max = 0x1000000)
+            where T : ISerializable, new()
         {
             T[] array = new T[reader.ReadVarInt((ulong)max)];
             for (int i = 0; i < array.Length; i++)
@@ -219,7 +239,16 @@ namespace Phantasma.Core
                 array[i] = new T();
                 array[i].UnserializeData(reader);
             }
+
             return array;
+        }
+
+        public static T ReadSerializable<T>(this BinaryReader reader, int max = 0x1000000)
+            where T : ISerializable, new()
+        {
+            T item = new T();
+            item.UnserializeData(reader);
+            return item;
         }
 
         public static byte[] ToArray(this ISerializable value)

@@ -1,9 +1,12 @@
 ﻿using System;
-using System.Numerics;
 using System.Collections.Generic;
-using Phantasma.Core;
+using System.Numerics;
+using Phantasma.Core.Cryptography;
+using Phantasma.Core.Numerics;
+using Phantasma.Infrastructure.Pay.Enums;
+using Phantasma.Infrastructure.Pay.Structs;
 
-namespace Phantasma.Infrastructure.Chains
+namespace Phantasma.Infrastructure.Pay.Chains
 {
     public class PhantasmaWallet : CryptoWallet
     {
