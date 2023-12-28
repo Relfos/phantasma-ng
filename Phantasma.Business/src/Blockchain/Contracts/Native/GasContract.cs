@@ -139,7 +139,7 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
 
             Runtime.Expect(inflationAmount > 0, "invalid inflation amount");
             
-            if (Runtime.ProtocolVersion < 16)
+            if (Runtime.ProtocolVersion < 17)
             {
                 ApplyInflationV1(from, ref inflationAmount, ref mintedAmount);
             }
@@ -677,7 +677,10 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
                 Address validatorAddress = Runtime.Chain.ValidatorAddress;
                 var eventData = new TokenEventData(DomainSettings.FuelTokenSymbol, validatorPayment, Runtime.Chain.Name);
                 Runtime.TransferTokens(DomainSettings.FuelTokenSymbol, Address, validatorAddress, validatorPayment);
-                Runtime.Notify(EventKind.TokenClaim, validatorAddress, Serialization.Serialize(eventData), "block");
+                if (Runtime.ProtocolVersion >= 19)
+                    Runtime.Notify(EventKind.TokenClaim, validatorAddress, Serialization.Serialize(eventData), "block", EventKind.TokenClaim.ToString());
+                else 
+                    Runtime.Notify(EventKind.TokenClaim, validatorAddress, Serialization.Serialize(eventData), "block");
             }
             else
             {

@@ -123,6 +123,42 @@ public class ABCIConnector : ABCIApplication.ABCIApplicationBase
             }
             
             systemTransactions = chain.BeginBlock(proposerAddress, request.Header.Height, _minimumFee, time, this._initialValidators); 
+            
+            // broadcast system transactions
+            uint version = DomainSettings.Phantasma30Protocol;
+            try
+            {
+                version = _nexus.GetProtocolVersion(_nexus.RootStorage);
+            }
+            catch (Exception e)
+            {
+                
+            }
+
+            if (version >= 19)
+            {
+                if ( systemTransactions != null && systemTransactions.Count() > 0 )
+                {
+                    foreach (var tx in systemTransactions)
+                    {
+                        var txString = Base16.Encode(tx.ToByteArray(true));
+                        Log.Information("Broadcast tx {Transaction}", tx);
+                        while (true)
+                        {
+                            try
+                            {
+                                _rpc.BroadcastTxSync(txString);
+                                break;
+                            }
+                            catch (Exception e)
+                            {
+                                Console.WriteLine(e.Message);
+                            }
+                        }
+                        Log.Information("Broadcast tx {Transaction} done", tx);
+                    }
+                }
+            }
         }
         catch (Exception e)
         {
@@ -293,24 +329,33 @@ public class ABCIConnector : ABCIApplication.ABCIApplicationBase
         Log.Information($"ABCI Connector - Commit");
 
         var chain = _nexus.RootChain as Chain;
+        var attempts = 2;
+        
         // Is signed by me and I am the proposer
-        Log.Information("Block {Height} is signed by {Address}", chain.Height, chain.CurrentBlock.Validator);
-        if (chain.CurrentBlock.Validator == chain.ValidatorAddress)
+        if (chain.CurrentBlock != null)
         {
-            Log.Information("Block {Height} Is Being Validated by me.");
-            chain.Commit();
+            Log.Information("Block {Height} is signed by {Address}", chain.Height, chain.CurrentBlock.Validator);
+            if (chain.CurrentBlock.Validator == chain.ValidatorAddress)
+            {
+                Log.Information("Block {Height} Is Being Validated by me.");
+                chain.Commit();
+            }
+            else
+            {
+                while (chain.CurrentBlock != null && attempts-- > 0)
+                {
+                    AttemptRequestBlock(chain);
+                
+                    Thread.Sleep(_delayRequests);
+                }
+                //var data = chain.Commit();
+            }
         }
         else
         {
-            var attempts = 2;
-            while (chain.CurrentBlock != null && attempts-- > 0)
-            {
-                AttemptRequestBlock(chain);
-                
-                Thread.Sleep(_delayRequests);
-            }
-            //var data = chain.Commit();
+            Log.Error("Block {Height} Is Null.", chain.Height);
         }
+        
         var response = new ResponseCommit();
         
         //response.Data = ByteString.CopyFrom(data); // this would change the app hash, we don't want that

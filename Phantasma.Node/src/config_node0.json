@@ -21,7 +21,7 @@
       "has.relay": false,
       "has.archive": false,
       "has.rest": true,
-      "rest.port": 7078,
+      "rest.port": 7099,
       "nexus.bootstrap": true,
       "genesis.timestamp": 0,
       "api.cache": true,

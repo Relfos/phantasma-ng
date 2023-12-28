@@ -76,7 +76,8 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
             }
             
             Runtime.Expect(Runtime.IsWitness(from), "invalid witness");
-            Runtime.Expect(Runtime.IsKnownValidator(from), "invalid validator");
+            if ( Runtime.HasGenesis )
+                Runtime.Expect(Runtime.IsKnownValidator(from), "invalid validator");
             _currentEnergyRatioDivisor = DefaultEnergyRatioDivisor; // used as 1/500, will initially generate 0.002 per staked token
         }
 
@@ -402,6 +403,12 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
                             {
                                 Runtime.Expect(Runtime.IsPrimaryValidator(from), "only primary validators can stake during genesis");
                             }
+
+                            if (Runtime.ProtocolVersion >= 19)
+                            {
+                                // Force Claim
+                                InternalClaim(from, from);
+                            }
                         }
                         else
                         {
@@ -490,6 +497,7 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
         public void Unstake(Address from, BigInteger unstakeAmount)
         {
             Runtime.Expect(Runtime.IsWitness(from), "witness failed");
+
             Runtime.Expect(unstakeAmount >= MinimumValidStake, "invalid amount");
 
             Runtime.Expect(!Nexus.IsDangerousAddress(from), "this address can't be used as source");
@@ -507,7 +515,13 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
             var stakedDays = stakedDiff / SecondsInDay; // convert seconds to days
 
             Runtime.Expect(stakedDays >= 1, "waiting period required");
-
+            
+            if (Runtime.ProtocolVersion >= 19)
+            {
+                // Force the Claim 
+                InternalClaim(from, from);
+            }
+            
             var token = Runtime.GetToken(DomainSettings.StakingTokenSymbol);
             var balance = Runtime.GetBalance(token.Symbol, Address);
             Runtime.Expect(balance >= unstakeAmount, "not enough balance to unstake");
@@ -698,6 +712,32 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
         }
 
         /// <summary>
+        /// Get Crown Days
+        /// </summary>
+        /// <param name="crowns"></param>
+        /// <param name="from"></param>
+        /// <returns></returns>
+        private uint[] GetCrownDays(BigInteger[] crowns, Address from)
+        {
+            uint[] crownDays;
+
+            if (Runtime.ProtocolVersion <= 12)
+            {
+                crownDays = crowns.Select(id => (Runtime.Time - Runtime.ReadToken(DomainSettings.RewardTokenSymbol, id).Timestamp) / SecondsInDay).OrderByDescending(k => k).ToArray();
+            }
+            else
+            {
+                crownDays = crowns.Select(id => id != 0 ?
+
+                    (Runtime.Time - Runtime.ReadToken(DomainSettings.RewardTokenSymbol, id).Timestamp) / SecondsInDay :
+                    0
+                ).OrderBy(k => k).ToArray();
+            }
+
+            return crownDays;
+        }
+        
+        /// <summary>
         /// Returns the unclaimed amount.
         /// </summary>
         /// <param name="from"></param>
@@ -713,18 +753,7 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
             var crowns = Runtime.GetOwnerships(DomainSettings.RewardTokenSymbol, from);
 
             // calculate how many days each CROWN is hold at current address and use older ones first
-            if (Runtime.ProtocolVersion <= 12)
-            {
-                crownDays = crowns.Select(id => (Runtime.Time - Runtime.ReadToken(DomainSettings.RewardTokenSymbol, id).Timestamp) / SecondsInDay).OrderByDescending(k => k).ToArray();
-            }
-            else
-            {
-                crownDays = crowns.Select(id => id != 0 ?
-
-                        (Runtime.Time - Runtime.ReadToken(DomainSettings.RewardTokenSymbol, id).Timestamp) / SecondsInDay :
-                        0
-                    ).OrderBy(k => k).ToArray();
-            }
+            crownDays = GetCrownDays(crowns, from);
 
             var bonusPercent = (int)Runtime.GetGovernanceValue(StakeSingleBonusPercentTag);
             var maxPercent = (int)Runtime.GetGovernanceValue(StakeMaxBonusPercentTag);
@@ -783,6 +812,79 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
         }
 
         /// <summary>
+        /// Internal Claim Function
+        /// </summary>
+        /// <param name="from"></param>
+        /// <param name="stakeAddress"></param>
+        /// <returns></returns>
+        private StakeExceptions InternalClaim(Address from, Address stakeAddress)
+        {
+            if (!_stakeMap.ContainsKey(stakeAddress))
+            {
+                return StakeExceptions.NotStaking; 
+            }
+            
+            var unclaimedAmount = GetUnclaimed(stakeAddress);
+            
+            if (unclaimedAmount == 0)
+            {
+                return StakeExceptions.InvalidUnclaimAmount;
+            }
+
+            var fuelAmount = unclaimedAmount;
+
+            // if the transaction comes from someone other than the stake owner, must be a contract / organizataion
+            if (from != stakeAddress && !stakeAddress.IsSystem)
+            {
+                return StakeExceptions.InvalidStakeAddress;
+            }
+
+            Runtime.MintTokens(DomainSettings.FuelTokenSymbol, Address, stakeAddress, fuelAmount);
+
+            var claimList = _claimMap.Get<Address, StorageList>(stakeAddress);
+            var count = claimList.Count();
+
+            // update the date of everything that was claimed
+            for (int i = 0; i < count; i++)
+            {
+                var entry = claimList.Get<EnergyClaim>(i);
+
+                if (Runtime.Time >= entry.claimDate)
+                {
+                    var claimDiff = Runtime.Time - entry.claimDate;
+                    var clamDays = claimDiff / SecondsInDay;
+                    if (entry.isNew)
+                    {
+                        clamDays++;
+                    }
+
+                    if (clamDays >= 1)
+                    {
+                        entry.claimDate = Runtime.Time;
+                        entry.isNew = false;
+                        claimList.Replace(i, entry);
+                    }
+                }
+            }
+
+            // remove any leftovers
+            if (_leftoverMap.ContainsKey(stakeAddress))
+            {
+                _leftoverMap.Remove(stakeAddress);
+            }
+
+            // mark date to prevent imediate unstake
+            if (Runtime.Time >= ContractPatch.UnstakePatch)
+            {
+                var stake = _stakeMap.Get<Address, EnergyStake>(stakeAddress);
+                stake.stakeTime = Runtime.Time;
+                _stakeMap.Set(stakeAddress, stake);
+            }
+
+            return StakeExceptions.None;
+        }
+
+        /// <summary>
         /// Method used to claim the unclaimed amount.
         /// </summary>
         /// <param name="from"></param>
@@ -790,6 +892,14 @@ namespace Phantasma.Business.Blockchain.Contracts.Native
         public void Claim(Address from, Address stakeAddress)
         {
             Runtime.Expect(Runtime.IsWitness(from), "witness failed");
+
+            if (Runtime.ProtocolVersion >= 19)
+            {
+                var stakeException = InternalClaim(from, stakeAddress);
+                if (stakeException != StakeExceptions.None)
+                    Runtime.Expect(false, stakeException.ToString());
+                return;
+            }
 
             var unclaimedAmount = GetUnclaimed(stakeAddress);
 
